@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+VERSION="0.1.0"
+
+show_help() {
+  cat <<EOF
+jira - Search and open Jira issues from the command line
+
+Usage: $(basename "$0") COMMAND [OPTIONS]
+
+Commands:
+  issues assigned [OPTIONS]       List your open assigned issues
+  issues mentioned [OPTIONS]      List issues watching you (excluding assigned)
+  issues reported [OPTIONS]       List your open reported issues
+  issues recent [OPTIONS]         List recently viewed issues
+  issues search [OPTIONS] [JQL]   Search with a Jira Query Language expression
+  issues due [OPTIONS]            List your open issues due soon
+  issues project KEY [OPTIONS]    List issues in a project
+  issue info KEY [OPTIONS]        Show key issue fields
+  issue comments KEY [OPTIONS]    List issue comments
+  issue history KEY [OPTIONS]     List issue change history
+  issue links KEY [--json]        Show parent, subtasks, and linked issues
+  issue open KEY_OR_URL           Open an issue in your browser
+
+Options for issue list commands:
+  --json                          Print a JSON array
+  --limit NUMBER                  Maximum results (default: 25, maximum: 1000)
+  -h, --help                      Show command help
+
+Options for issue info:
+  --json                          Print the selected fields as JSON
+  --verbose                       Show all fields and changelog entries
+
+Options for issue comments and history:
+  --json                          Print results as JSON
+  --limit NUMBER                  Maximum results to return
+
+Global Options:
+  -h, --help                      Show this help message
+  -v, --version                   Show version
+
+Credentials:
+  Read JIRA_DOMAIN and JIRA_TOKEN from ~/.config/jira/credentials.
+  Set JIRA_CREDENTIALS_FILE to use a different credentials file.
+
+Examples:
+  $(basename "$0") issues assigned
+  $(basename "$0") issues mentioned --limit 50
+  $(basename "$0") issues reported --json
+  $(basename "$0") issues search 'project = PROJ AND status = "In Progress"'
+  $(basename "$0") issues search --json 'assignee = currentUser() ORDER BY updated DESC'
+  $(basename "$0") issue info PROJ-123
+  $(basename "$0") issue info PROJ-123 --json
+  $(basename "$0") issue info PROJ-123 --verbose
+  $(basename "$0") issue comments PROJ-123
+  $(basename "$0") issue history PROJ-123 --limit 20
+  $(basename "$0") issue links PROJ-123
+  $(basename "$0") issues due --within 7d
+  $(basename "$0") issues project PROJ --status "In Progress"
+  $(basename "$0") issue open PROJ-123
+EOF
+}
+
+# Resolve symlinks so the library can be found when the CLI is on PATH.
+JIRA_SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "${JIRA_SOURCE}" ]]; do
+  JIRA_SOURCE_DIR="$(cd -P "$(dirname "${JIRA_SOURCE}")" && pwd)"
+  JIRA_SOURCE="$(readlink "${JIRA_SOURCE}")"
+  [[ "${JIRA_SOURCE}" != /* ]] && JIRA_SOURCE="${JIRA_SOURCE_DIR}/${JIRA_SOURCE}"
+done
+JIRA_SCRIPT_DIR="$(cd -P "$(dirname "${JIRA_SOURCE}")" && pwd)"
+JIRA_PROJECT_ROOT="${JIRA_SCRIPT_DIR}/.."
+
+source "${JIRA_PROJECT_ROOT}/lib/common.sh"
+source "${JIRA_PROJECT_ROOT}/lib/issues.sh"
+source "${JIRA_PROJECT_ROOT}/lib/issue-info.sh"
+source "${JIRA_PROJECT_ROOT}/lib/issue-commands.sh"
+
+main() {
+  [[ $# -gt 0 ]] || { show_help >&2; exit 1; }
+
+  case "$1" in
+    -h|--help)
+      show_help
+      ;;
+    -v|--version)
+      printf 'jira %s\n' "${VERSION}"
+      ;;
+    issues)
+      shift
+      cmd_issues "$@"
+      ;;
+    issue)
+      shift
+      [[ $# -gt 0 ]] || die 'issue requires a subcommand'
+      case "$1" in
+        info) shift; cmd_info "$@" ;;
+        comments) shift; cmd_issue_comments "$@" ;;
+        history) shift; cmd_issue_history "$@" ;;
+        links) shift; cmd_issue_links "$@" ;;
+        open) shift; cmd_open "$@" ;;
+        -h|--help) show_issue_help ;;
+        *) die "Unknown issue command '$1'" ;;
+      esac
+      ;;
+    *)
+      die "Unknown command '$1'"
+      ;;
+  esac
+}
+
+main "$@"
